@@ -18,9 +18,11 @@ export 'src/isolate.dart' show BlurHashEncodeParams, computeBlurHash;
 abstract final class BlurHash {
   /// Encodes raw image file bytes (JPEG, PNG, WebP, GIF, etc.) directly into a BlurHash string.
   ///
-  /// Uses Flutter's native C++ Skia hardware-accelerated decoder (`dart:ui.ImageDescriptor`)
-  /// to decode and downscale the image during DCT decoding in ~2-5ms, avoiding expensive
-  /// full-resolution memory allocations or slow pure-Dart software decoders.
+  /// Uses Flutter's engine image decoder (`dart:ui.instantiateImageCodecWithSize`), which on
+  /// native platforms decodes and downscales the image during decoding in ~2-5ms, avoiding
+  /// expensive full-resolution memory allocations or slow pure-Dart software decoders.
+  ///
+  /// Works on all platforms, including web.
   static Future<String> encodeImageBytes(
     Uint8List imageBytes, {
     int? componentX,
@@ -28,43 +30,57 @@ abstract final class BlurHash {
     int maxDimension = 100,
   }) async {
     final buffer = await ui.ImmutableBuffer.fromUint8List(imageBytes);
-    final descriptor = await ui.ImageDescriptor.encoded(buffer);
+    // `instantiateImageCodecWithSize` is used instead of reading
+    // `ImageDescriptor.encoded(...).width` directly, because the web engine does not
+    // support `ImageDescriptor.width`/`height` for encoded images and throws an
+    // `UnsupportedError`. On native platforms it uses `ImageDescriptor` internally, so
+    // behaviour and performance are unchanged. The buffer is disposed by the call.
+    final codec = await ui.instantiateImageCodecWithSize(
+      buffer,
+      getTargetSize: (int intrinsicWidth, int intrinsicHeight) {
+        int targetWidth = intrinsicWidth;
+        int targetHeight = intrinsicHeight;
+        if (targetWidth > maxDimension || targetHeight > maxDimension) {
+          if (targetWidth >= targetHeight) {
+            targetHeight =
+                (targetHeight * maxDimension / targetWidth).round().clamp(1, maxDimension);
+            targetWidth = maxDimension;
+          } else {
+            targetWidth =
+                (targetWidth * maxDimension / targetHeight).round().clamp(1, maxDimension);
+            targetHeight = maxDimension;
+          }
+        }
+        return ui.TargetImageSize(width: targetWidth, height: targetHeight);
+      },
+    );
 
-    int targetWidth = descriptor.width;
-    int targetHeight = descriptor.height;
-    if (targetWidth > maxDimension || targetHeight > maxDimension) {
-      if (targetWidth >= targetHeight) {
-        targetHeight =
-            (targetHeight * maxDimension / targetWidth).round().clamp(1, maxDimension);
-        targetWidth = maxDimension;
-      } else {
-        targetWidth =
-            (targetWidth * maxDimension / targetHeight).round().clamp(1, maxDimension);
-        targetHeight = maxDimension;
+    try {
+      final frame = await codec.getNextFrame();
+      final image = frame.image;
+      try {
+        final byteData = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+        if (byteData == null) {
+          throw const BlurHashException(
+              'Failed to extract raw RGBA pixel data from decoded image');
+        }
+        final pixels = byteData.buffer.asUint8List();
+
+        // Use the decoded image's real size rather than the requested one.
+        return encode(
+          pixels,
+          image.width,
+          image.height,
+          componentX: componentX,
+          componentY: componentY,
+          maxDimension: maxDimension,
+        );
+      } finally {
+        image.dispose();
       }
+    } finally {
+      codec.dispose();
     }
-
-    final codec = await descriptor.instantiateCodec(
-      targetWidth: targetWidth,
-      targetHeight: targetHeight,
-    );
-    final frame = await codec.getNextFrame();
-    final image = frame.image;
-
-    final byteData = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
-    if (byteData == null) {
-      throw const BlurHashException('Failed to extract raw RGBA pixel data from decoded image');
-    }
-    final pixels = byteData.buffer.asUint8List();
-
-    return encode(
-      pixels,
-      targetWidth,
-      targetHeight,
-      componentX: componentX,
-      componentY: componentY,
-      maxDimension: maxDimension,
-    );
   }
   /// Encodes raw pixel data into a BlurHash string.
   ///

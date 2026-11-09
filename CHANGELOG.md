@@ -1,3 +1,9 @@
+## 1.0.1
+
+* Fix `BlurHash.encodeImageBytes` throwing `UnsupportedError: ImageDescriptor.width is not supported on web` by decoding with `dart:ui.instantiateImageCodecWithSize`. Native behaviour and performance are unchanged.
+* Dispose the codec and decoded image after encoding.
+* Add tests for `encodeImageBytes` (VM and Chrome).
+
 ## 1.0.0
 
 * Initial release of `blurhashx`:

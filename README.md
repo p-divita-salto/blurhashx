@@ -19,8 +19,8 @@ Traditional Dart BlurHash packages rely on pure-Dart software image decoders and
 
 **BlurHashX solves this with a multi-tiered performance architecture:**
 
-1. **Native C++ Hardware-Accelerated Decoding (`dart:ui.ImageDescriptor`)**:
-   Instead of decoding multi-megapixel JPEGs in pure Dart bytecode, `BlurHash.encodeImageBytes` leverages the native Flutter engine / Skia C++ decoder (`libjpeg-turbo` with SIMD acceleration). It decodes and downsamples the image directly to the target DCT thumbnail dimension in **~2–5ms** (compared to ~1,400ms in software decoders).
+1. **Native C++ Hardware-Accelerated Decoding (`dart:ui.instantiateImageCodecWithSize`)**:
+   Instead of decoding multi-megapixel JPEGs in pure Dart bytecode, `BlurHash.encodeImageBytes` leverages the native Flutter engine / Skia C++ decoder (`libjpeg-turbo` with SIMD acceleration). It decodes and downsamples the image directly to the target DCT thumbnail dimension in **~2–5ms** (compared to ~1,400ms in software decoders). On web, the browser's image decoder is used, so `encodeImageBytes` works on every platform.
 2. **Separable 2D Discrete Cosine Transform**:
    Replaces the naive 4-nested-loop 2D DCT with a separable 2D DCT: a row pass ($O(cx \cdot W \cdot H)$) followed by a column pass ($O(cx \cdot cy \cdot H)$ on the compact intermediate matrix).
 3. **Linear-Light Box Downsampling**:
